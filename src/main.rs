@@ -4,7 +4,12 @@ use core::fmt;
 use std::collections::HashSet;
 use std::{f32::DIGITS, str::FromStr};
 
-use chrono::{Datelike, Local, NaiveDate, Weekday};
+use chrono::{Datelike, FixedOffset, Local, NaiveDate, Timelike, Weekday};
+use icu::calendar::DateTime;
+use icu::datetime::{options::length, DateTimeFormatter, ZonedDateTimeFormatter};
+use icu::locid::locale;
+use icu::datetime::options::components;
+use icu::datetime::time_zone::{self, TimeZoneFormatterOptions};
 
 enum PaddingStyle {
     NOPADDING,
@@ -76,35 +81,41 @@ impl fmt::Display for Output {
 }
 
 fn main() {
-    let fmt_string = "%%abcd%020y";
+    let datetime = Local::now().with_timezone(Local::now().offset());
+    let fmt_string = "%z";
     
 
-    let mut result: String = "".to_string();
-
-    let mut chars = fmt_string.clone().chars();
-    let section_list = partition_fmtstr_into_sections(chars);
-    println!("{:?}", section_list);
-    for section in section_list {
-        result = result + &format_section(&section);
-    }
+    let result = format(fmt_string, datetime);
 
     //let result = format(fmt_string);
 
     println!("{}", result);
 }
 
-fn format_section(fmt_string: &str) -> String {
+fn format(fmt_string: &str, datetime: chrono::DateTime<FixedOffset>) -> String {
+    let mut result: String = "".to_string();
+    let mut chars = fmt_string.clone().chars();
+    let section_list = partition_fmtstr_into_sections(chars);
+    //println!("{:?}", section_list);
+    for section in section_list {
+        result = result + &format_section(&section, datetime);
+    }
+    result
+}
+
+fn format_section(fmt_string: &str, datetime: chrono::DateTime<FixedOffset>) -> String {
+    let locale = locale!("en_US");
     let mut chars = fmt_string.clone().chars().peekable();
     let mut specifier: Output;
-    let mut text_case: TextCase;
-    let mut padding_style: Option<PaddingStyle> = Some(PaddingStyle::NOPADDING);
+    let mut text_case: TextCase = TextCase::SAME;
+    let mut padding_style: Option<PaddingStyle> = None;
     let mut padding_wdth: Option<usize>;
-    let format_specifiers = HashSet::from(['q', 'C', 'g', 'G', 'm', 'V', 'U', 'W', 'y', 'Y', '%']);
+    let format_specifiers = HashSet::from(['a', 'A', 'b', 'B', 'C', 'd', 'D', 'e', 'q', 'g', 'G', 'h', 'H', 'I', 'j', 'k', 'l', 'm', 'n', 'N', 'p', 'P', 'q', 'r', 'R', 's', 'S', 't', 'T', 'u', 'U', 'V', 'w', 'W', 'x', 'X', 'y', 'Y', 'z', '%']);
     let format_modifiers = HashSet::from(['#', '-', '_', '^', '+', '0']);
     let mut padding_width_string = "".to_string();
-    let now = Local::now().with_timezone(Local::now().offset());
-    let naive_date = NaiveDate::from_ymd_opt(now.year(), now.month(), now.day()).unwrap();
-    let mut is_specifier = false;
+    let naive_date = NaiveDate::from_ymd_opt(datetime.year(), datetime.month(), datetime.day()).unwrap();
+    let date = DateTime::try_new_iso_datetime(datetime.year(), datetime.month().try_into().unwrap(), datetime.day().try_into().unwrap(), datetime.hour().try_into().unwrap(), datetime.minute().try_into().unwrap(), datetime.second().try_into().unwrap()).unwrap();
+    let date = date.to_any();
     let mut result: String = "".into();
     let mut output: String;
 
@@ -116,6 +127,7 @@ fn format_section(fmt_string: &str) -> String {
             '_' => padding_style = Some(PaddingStyle::SPACE),
             '^' => text_case = TextCase::CAPITAL,
             '0' => padding_style = Some(PaddingStyle::ZERO),
+            //TODO implement format modifier '+'
             _ => (),
         }
     }
@@ -138,20 +150,111 @@ fn format_section(fmt_string: &str) -> String {
                     output = specifier.to_string();
                     &output
                 }
-                'q' => {
-                    specifier = Output::NumericOutput {
-                        value: ((now.month() / 3) + 1).into(),
+                'b' => {
+                    let mut bag = components::Bag::default();
+                    bag.month = Some(components::Month::Short);
+                    let options = icu::datetime::DateTimeFormatterOptions::Components(bag);
+                    let dtf = DateTimeFormatter::try_new_experimental(
+                        &locale.into(),
+                        options,
+                    )
+                    .unwrap();
+                    specifier = Output::TextOutput {
+                        value: dtf.format(&date).unwrap().to_string(),
                         padding_width: padding_width_string.parse().unwrap_or(0),
-                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'B' => {
+                    let mut bag = components::Bag::default();
+                    bag.month = Some(components::Month::Long);
+                    let options = icu::datetime::DateTimeFormatterOptions::Components(bag);
+                    let dtf = DateTimeFormatter::try_new_experimental(
+                        &locale.into(),
+                        options,
+                    )
+                    .unwrap();
+                    specifier = Output::TextOutput {
+                        value: dtf.format(&date).unwrap().to_string(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'a' => {
+                    let mut bag = components::Bag::default();
+                    bag.weekday = Some(components::Text::Short);
+                    let options = icu::datetime::DateTimeFormatterOptions::Components(bag);
+                    let dtf = DateTimeFormatter::try_new_experimental(
+                        &locale.into(),
+                        options,
+                    )
+                    .unwrap();
+                    specifier = Output::TextOutput {
+                        value: dtf.format(&date).unwrap().to_string(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'A' => {
+                    let mut bag = components::Bag::default();
+                    bag.weekday = Some(components::Text::Long);
+                    let options = icu::datetime::DateTimeFormatterOptions::Components(bag);
+                    let dtf = DateTimeFormatter::try_new_experimental(
+                        &locale.into(),
+                        options,
+                    )
+                    .unwrap();
+                    specifier = Output::TextOutput {
+                        value: dtf.format(&date).unwrap().to_string(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
                     };
                     output = specifier.to_string();
                     &output
                 }
                 'C' => {
                     specifier = Output::NumericOutput {
-                        value: (now.year() / 100).into(),
+                        value: (datetime.year() / 100).into(),
                         padding_width: padding_width_string.parse().unwrap_or(0),
                         padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'd' => {
+                    specifier = Output::NumericOutput {
+                        value: (datetime.day()).into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'D' => {
+                    specifier = Output::TextOutput {
+                        value: format("%m/%d/%y", datetime),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'e' => {
+                    specifier = Output::NumericOutput {
+                        value: (datetime.day()).into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::SPACE),
                     };
                     output = specifier.to_string();
                     &output
@@ -174,19 +277,207 @@ fn format_section(fmt_string: &str) -> String {
                     output = specifier.to_string();
                     &output
                 }
-                'm' => {
+                'h' => {
+                    let mut bag = components::Bag::default();
+                    bag.month = Some(components::Month::Short);
+                    let options = icu::datetime::DateTimeFormatterOptions::Components(bag);
+                    let dtf = DateTimeFormatter::try_new_experimental(
+                        &locale.into(),
+                        options,
+                    )
+                    .unwrap();
+                    specifier = Output::TextOutput {
+                        value: dtf.format(&date).unwrap().to_string(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'H' => {
                     specifier = Output::NumericOutput {
-                        value: (now.month()).into(),
+                        value: (datetime.hour()).into(),
                         padding_width: padding_width_string.parse().unwrap_or(2),
                         padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
                     };
                     output = specifier.to_string();
                     &output
                 }
-                'V' => {
+                'I' => {
                     specifier = Output::NumericOutput {
-                        value: naive_date.iso_week().week().into(),
+                        value: (datetime.hour12()).1.into(),
                         padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'j' => {
+                    specifier = Output::NumericOutput {
+                        value: datetime.ordinal().into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'k' => {
+                    specifier = Output::NumericOutput {
+                        value: (datetime.hour()).into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::SPACE),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'l' => {
+                    specifier = Output::NumericOutput {
+                        value: (datetime.hour12()).1.into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::SPACE),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'm' => {
+                    specifier = Output::NumericOutput {
+                        value: (datetime.month()).into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'M' => {
+                    specifier = Output::NumericOutput {
+                        value: datetime.minute().into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'n' => {
+                    specifier = Output::TextOutput {
+                        value: "\n".to_string(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: TextCase::SAME,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'N' => {
+                    specifier = Output::NumericOutput {
+                        value: datetime.nanosecond().into(),
+                        padding_width: padding_width_string.parse().unwrap_or(9),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'p' => {
+                    specifier = Output::TextOutput {
+                        value: {
+                            match datetime.hour12().0 {
+                                false => "AM".to_owned(),
+                                true => "PM".to_owned()
+                            }
+                        },
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'P' => {
+                    specifier = Output::TextOutput {
+                        value: {
+                            match datetime.hour12().0 {
+                                false => "am".to_owned(),
+                                true => "pm".to_owned()
+                            }
+                        },
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'q' => {
+                    specifier = Output::NumericOutput {
+                        value: ((datetime.month() / 3) + 1).into(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'r' => {
+                    specifier = Output::TextOutput {
+                        value: format("%l:%M:%S %p", datetime),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'R' => {
+                    specifier = Output::TextOutput {
+                        value: format("%H:%M", datetime),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                's' => {
+                    specifier = Output::NumericOutput {
+                        value: datetime.timestamp(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'S' => {
+                    specifier = Output::NumericOutput {
+                        value: datetime.second().into(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                't' => {
+                    specifier = Output::TextOutput {
+                        value: "\t".to_string(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: TextCase::SAME,
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'T' => {
+                    specifier = Output::TextOutput {
+                        value: format("%H:%M:%S", datetime),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'u' => {
+                    specifier = Output::NumericOutput {
+                        value: datetime.weekday().number_from_monday().into(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
                         padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
                     };
                     output = specifier.to_string();
@@ -196,6 +487,15 @@ fn format_section(fmt_string: &str) -> String {
                     specifier = Output::NumericOutput {
                         value: (naive_date.week(Weekday::Sun).first_day().ordinal0() / 7 + 1)
                             .into(),
+                        padding_width: padding_width_string.parse().unwrap_or(2),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'V' => {
+                    specifier = Output::NumericOutput {
+                        value: naive_date.iso_week().week().into(),
                         padding_width: padding_width_string.parse().unwrap_or(2),
                         padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
                     };
@@ -212,9 +512,38 @@ fn format_section(fmt_string: &str) -> String {
                     output = specifier.to_string();
                     &output
                 }
+                'w' => {
+                    specifier = Output::NumericOutput {
+                        value: datetime.weekday().num_days_from_sunday().into(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'x' => {
+                    specifier = Output::TextOutput {
+                        value: format("%D", datetime),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'X' => {
+                    specifier = Output::TextOutput {
+                        value: format("%T", datetime),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
                 'y' => {
                     specifier = Output::NumericOutput {
-                        value: (now.year() % 100).into(),
+                        value: (datetime.year() % 100).into(),
                         padding_width: padding_width_string.parse().unwrap_or(2),
                         padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
                     };
@@ -223,9 +552,29 @@ fn format_section(fmt_string: &str) -> String {
                 }
                 'Y' => {
                     specifier = Output::NumericOutput {
-                        value: now.year().into(),
+                        value: datetime.year().into(),
                         padding_width: padding_width_string.parse().unwrap_or(2),
                         padding_style: padding_style.unwrap_or(PaddingStyle::ZERO),
+                    };
+                    output = specifier.to_string();
+                    &output
+                }
+                'z' => {
+                    let mut bag = components::Bag::default();
+                    bag.time_zone_name = Some(components::TimeZoneName::LongGeneric);
+                    let options = icu::datetime::DateTimeFormatterOptions::Components(bag);
+                    let time_zone = icu::timezone::CustomTimeZone::utc();
+                    let dtf = ZonedDateTimeFormatter::try_new_experimental(
+                        &locale.into(),
+                        options.into(),
+                        Default::default()
+                    )
+                    .unwrap();
+                    specifier = Output::TextOutput {
+                        value: dtf.format(&date,&time_zone).unwrap().to_string(),
+                        padding_width: padding_width_string.parse().unwrap_or(0),
+                        padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+                        text_case: text_case,
                     };
                     output = specifier.to_string();
                     &output
@@ -239,12 +588,14 @@ fn format_section(fmt_string: &str) -> String {
         specifier = Output::TextOutput {
             value: fmt_string.to_owned(),
             padding_width: padding_width_string.parse().unwrap_or(0),
-            padding_style: padding_style.unwrap_or(PaddingStyle::NOPADDING),
+            padding_style: padding_style.unwrap_or(PaddingStyle::SPACE),
             text_case: TextCase::SAME,
         };
         result = result + &specifier.to_string();
     }
-    while let Some(c) = chars.next() {
+
+    //add remaining characters to result
+    for c in chars {
         result = result + &c.to_string();
     }
     result

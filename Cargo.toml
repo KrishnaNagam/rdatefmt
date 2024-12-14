@@ -7,3 +7,8 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
+icu_locid = "1.5.0"
+icu = {features = ["icu_datetime_experimental", "experimental"], version = "1.5.0"}
+icu_calendar = "1.5.0"
+icu_provider = "1.5.0"
+icu_provider_fs = "1.5.0"
